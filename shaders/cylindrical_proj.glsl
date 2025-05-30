@@ -14,7 +14,7 @@ uniform float pointRadius = 0.1;   //# uiname=Point Radius (m); min=0.001; max=1
 uniform float trimRadius = 1000000;//# uiname=Trim Radius; min=1; max=1000000
 uniform float exposure = 1.0;      //# uiname=Exposure; min=0.001; max=10000
 uniform float contrast = 1.0;      //# uiname=Contrast; min=0.001; max=10000
-uniform int colorMode = 0;         //# uiname=Colour Mode; enum=Intensity|Colour|Return Number|Number Of Returns|Point Source|Classification|File Number
+uniform int colorMode = 1;         //# uiname=Colour Mode; enum=Intensity|Colour|Return Number|Number Of Returns|Point Source|Classification|File Number
 
 uniform float hfov = 170;   //# uiname=Horizontal field of view; min=5; max=175; scaling=linear
 

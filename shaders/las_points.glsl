@@ -9,12 +9,12 @@ uniform mat4 modelViewProjectionMatrix;
 //------------------------------------------------------------------------------
 #if defined(VERTEX_SHADER)
 
-uniform float pointRadius = 0.1;    //# uiname=Point Radius; min=0.001; max=10
+uniform float pointRadius = 0.04;    //# uiname=Point Radius; min=0.001; max=10
 uniform float trimRadius = 1000000; //# uiname=Trim Radius; min=1; max=1000000
 uniform float reference = 400.0;    //# uiname=Reference Intensity; min=0.001; max=100000
 uniform float exposure = 1.0;       //# uiname=Exposure; min=0.001; max=10000
-uniform float contrast = 1.0;       //# uiname=Contrast; min=0.001; max=10000
-uniform int colorMode = 0;          //# uiname=Colour Mode; enum=Intensity|Colour|Return Index|Point Source|Las Classification|File Number|Distance
+uniform float contrast = 1.3;       //# uiname=Contrast; min=0.001; max=10000
+uniform int colorMode = 1;          //# uiname=Colour Mode; enum=Intensity|Colour|Return Index|Point Source|Las Classification|File Number|Distance
 uniform int selectionMode = 0;      //# uiname=Selection; enum=All|Classified|First Return|Last Return|First Of Several
 uniform float minPointSize = 0;
 uniform float maxPointSize = 400.0;

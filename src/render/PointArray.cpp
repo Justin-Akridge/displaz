@@ -1,6 +1,9 @@
 // Copyright 2015, Christopher J. Foster and the other displaz contributors.
 // Use of this code is governed by the BSD-style license found in LICENSE.txt
 
+
+
+// Add this to PointArray class public or private as needed
 #include "PointArray.h"
 
 #include "QtLogger.h"
@@ -19,6 +22,7 @@
 #include <random>
 #include <queue>
 #include <array>
+#include <stack>
 
 #include <cfloat>
 
@@ -117,6 +121,7 @@ bool PointArray::loadFile(QString fileName, size_t maxPointCount)
     {
         if (!loadLas(fileName, maxPointCount, m_fields, offset, m_npoints, totalPoints))
             return false;
+
     }
     else if (fileName.toLower().endsWith(".ply"))
     {
@@ -228,6 +233,12 @@ bool PointArray::loadFile(QString fileName, size_t maxPointCount)
     emit loadProgress(int(100));
     emit loadStepComplete();
 
+    auto points = getPointsByClassification(23);
+    std::cout << "point size: " << points.size() << std::endl;
+    for (const auto& [pos, info] : points)
+    {
+        std::cout << "Point at " << pos << "\n" << info << std::endl;
+    }
     return true;
 }
 
@@ -643,3 +654,100 @@ DrawCount PointArray::drawPoints(QOpenGLShaderProgram& prog, const TransformStat
 
     return drawCount;
 }
+
+
+std::vector<std::pair<V3d, std::string>> PointArray::getPointsByClassification(uint8_t targetClass) const
+{
+    std::vector<std::pair<V3d, std::string>> result;
+
+    int classFieldIdx = -1;
+    for (size_t i = 0; i < m_fields.size(); ++i)
+    {
+        if (m_fields[i].name == "classification")
+        {
+            classFieldIdx = static_cast<int>(i);
+            break;
+        }
+    }
+    if (classFieldIdx == -1)
+    {
+        std::cerr << "No classification field found\n";
+        return result;
+    }
+
+    const uint8_t* classData = reinterpret_cast<const uint8_t*>(m_fields[classFieldIdx].data.get());
+    if (!classData)
+    {
+        std::cerr << "Classification data pointer null\n";
+        return result;
+    }
+
+    if (!m_rootNode)
+    {
+        std::cerr << "Root node is null\n";
+        return result;
+    }
+
+    std::stack<const OctreeNode*> nodes;
+    nodes.push(m_rootNode.get());
+
+    size_t totalPointsChecked = 0;
+    size_t totalPointsMatched = 0;
+
+    while (!nodes.empty())
+    {
+        const OctreeNode* node = nodes.top();
+        nodes.pop();
+
+        if (!node)
+            continue;
+
+        if (!node->isLeaf())
+        {
+            for (int i = 0; i < 8; ++i)
+            {
+                if (node->children[i])
+                    nodes.push(node->children[i]);
+            }
+        }
+        else
+        {
+            size_t leafPointCount = node->endIndex - node->beginIndex;
+            std::cerr << "Leaf node with " << leafPointCount << " points\n";
+
+            for (size_t idx = node->beginIndex; idx < node->endIndex; ++idx)
+            {
+                totalPointsChecked++;
+                if (classData[idx] != targetClass)
+                    continue;
+
+                totalPointsMatched++;
+
+                V3d pos = V3d(m_P[idx]) + offset();
+
+                std::ostringstream out;
+                for (const auto& field : m_fields)
+                {
+                    tfm::format(out, "  %s = ", field.name);
+                    if (field.name == "position")
+                    {
+                        const float* p = reinterpret_cast<const float*>(field.data.get() + idx * field.spec.size());
+                        tfm::format(out, "%.3f %.3f %.3f\n",
+                                    p[0] + offset().x, p[1] + offset().y, p[2] + offset().z);
+                    }
+                    else
+                    {
+                        field.format(out, idx);
+                        out << "\n";
+                    }
+                }
+
+                result.emplace_back(pos, out.str());
+            }
+        }
+    }
+
+    return result;
+}
+
+

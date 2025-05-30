@@ -50,6 +50,21 @@ class InteractiveCamera : public QObject
     Q_OBJECT
 
     public:
+        Imath::V3d rightVector() const
+        {
+            // Forward vector: direction from eye to center (normalized)
+            Imath::V3d forward = (m_center - position()).normalized();
+            // Right vector: cross product of forward and up (m_rot rotated up vector)
+            Imath::V3d upVec = upVector();
+            return forward.cross(upVec).normalized();
+        }
+
+        Imath::V3d upVector() const
+        {
+            // The up vector is the camera's rotation applied to the world up (0,1,0)
+            QVector3D qUp = m_rot.rotatedVector(QVector3D(0,1,0));
+            return Imath::V3d(qUp.x(), qUp.y(), qUp.z()).normalized();
+        }
         /// Construct camera; if reverseHandedness is true, the viewing
         /// transformation will invert the z-axis.  If used with OpenGL (which
         /// is right handed by default) this gives us a left handed coordinate

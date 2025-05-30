@@ -40,6 +40,70 @@
 #include <QLocalServer>
 #include <QMimeData>
 #include <QGLFormat>
+#include <Eigen/Dense>
+
+using Point3D = Eigen::Vector3d;
+std::vector<std::vector<size_t>> dbscanCluster(const std::vector<Point3D>& points, double eps, size_t minPts);
+#include <Eigen/Dense>
+#include <vector>
+#include <cmath>
+
+using Point = Eigen::Vector3d;
+
+double distance(const Point& a, const Point& b) {
+    return (a - b).norm();
+}
+
+void dbscan(const std::vector<Point>& points, double eps, int minPts, std::vector<int>& clusterIds) {
+    const int UNVISITED = -1;
+    const int NOISE = -2;
+    int clusterId = 0;
+
+    clusterIds.assign(points.size(), UNVISITED);
+
+    for (size_t i = 0; i < points.size(); ++i) {
+        if (clusterIds[i] != UNVISITED)
+            continue;
+
+        // Find neighbors
+        std::vector<size_t> neighbors;
+        for (size_t j = 0; j < points.size(); ++j) {
+            if (distance(points[i], points[j]) <= eps)
+                neighbors.push_back(j);
+        }
+
+        if (neighbors.size() < static_cast<size_t>(minPts)) {
+            clusterIds[i] = NOISE;
+            continue;
+        }
+
+        clusterIds[i] = clusterId;
+
+        size_t idx = 0;
+        while (idx < neighbors.size()) {
+            size_t nbr = neighbors[idx];
+
+            if (clusterIds[nbr] == NOISE)
+                clusterIds[nbr] = clusterId;
+
+            if (clusterIds[nbr] == UNVISITED) {
+                clusterIds[nbr] = clusterId;
+
+                // Expand neighbors
+                std::vector<size_t> nbrNeighbors;
+                for (size_t k = 0; k < points.size(); ++k) {
+                    if (distance(points[nbr], points[k]) <= eps)
+                        nbrNeighbors.push_back(k);
+                }
+                if (nbrNeighbors.size() >= static_cast<size_t>(minPts)) {
+                    neighbors.insert(neighbors.end(), nbrNeighbors.begin(), nbrNeighbors.end());
+                }
+            }
+            ++idx;
+        }
+        ++clusterId;
+    }
+}
 
 //------------------------------------------------------------------------------
 // MainWindow implementation
@@ -52,11 +116,11 @@ MainWindow::MainWindow(const QGLFormat& format)
     m_hookManager(0)
 {
 #ifndef _WIN32
-    setWindowIcon(QIcon(":resource/displaz_icon_256.png"));
+    //setWindowIcon(QIcon(":resource/displaz_icon_256.png"));
 #else
     // On windows, application icon is set via windows resource file
 #endif
-    setWindowTitle("Displaz");
+    setWindowTitle("Pivot");
     setAcceptDrops(true);
 
     m_helpDialog = new HelpDialog(this);
@@ -190,6 +254,15 @@ MainWindow::MainWindow(const QGLFormat& format)
     connect(backgroundCustom, SIGNAL(triggered()),
             this, SLOT(chooseBackground()));
 
+    // File menu
+    //connect(m_, SIGNAL(aboutToShow()), this, SLOT(updateRecentFiles()));
+
+    m_loadPoles = new QAction(tr("&Load Poles"), this);
+    connect(m_loadPoles, &QAction::triggered, this, &MainWindow::loadPoles);
+    addAction(m_loadPoles);
+
+    QMenu* environmentMenu = menuBar()->addMenu(tr("&Environment"));
+    environmentMenu->addAction(m_loadPoles);
 
     // Shader menu
     QMenu* shaderMenu = menuBar()->addMenu(tr("&Shader"));
@@ -328,6 +401,94 @@ MainWindow::MainWindow(const QGLFormat& format)
     m_hookManager = new HookManager(this);
 
     readSettings();
+}
+
+void MainWindow::loadPoles() {
+    bool ok;
+    int classId = QInputDialog::getInt(this,
+                                       tr("Load Poles"),
+                                       tr("Enter classification ID for poles:"),
+                                       18, 0, 255, 1, &ok);
+    if (!ok) return;
+
+    Geometry* geom = m_pointView->currentGeometry();
+    PointArray* pointArray = dynamic_cast<PointArray*>(geom);
+    
+    if (!pointArray) {
+        QMessageBox::warning(this, tr("Error"), tr("The current geometry is not a point cloud."));
+        return;
+    }
+
+    auto pointsRaw = pointArray->getPointsByClassification(static_cast<uint8_t>(classId));
+    
+    if (pointsRaw.empty()) {
+        QMessageBox::information(this, tr("No Poles Found"),
+                                 tr("No points found with classification ID %1.").arg(classId));
+        return;
+    }
+
+    // Convert points to the format needed for DBSCAN
+    std::vector<Point3D> points;
+    points.reserve(pointsRaw.size());
+    for (const auto& p : pointsRaw) {
+        const auto& v = p.first;
+        points.emplace_back(v.x, v.y, v.z);
+    }
+
+    // Get DBSCAN parameters from user
+    double eps = QInputDialog::getDouble(this,
+                                         tr("DBSCAN Parameters"),
+                                         tr("Enter max distance (eps) for points to be considered neighbors:"),
+                                         1.0, 0.0, 100.0, 2, &ok);
+    if (!ok) return;
+
+    int minPts = QInputDialog::getInt(this,
+                                       tr("DBSCAN Parameters"),
+                                       tr("Enter the minimum number of points (minPts) required to form a cluster:"),
+                                       10, 1, 100, 1, &ok);
+    if (!ok) return;
+
+    // Run DBSCAN
+    std::vector<int> clusterIds;
+    dbscan(points, eps, minPts, clusterIds);
+
+    // Find cluster centroids (pole positions)
+    std::map<int, std::vector<Point3D>> clusters;
+    
+    // Group points by cluster ID
+    for (size_t i = 0; i < points.size(); ++i) {
+        if (clusterIds[i] != -1) { // Ignore noise points
+            clusters[clusterIds[i]].push_back(points[i]);
+        }
+    }
+
+    // Calculate centroid for each cluster
+    std::vector<Eigen::Vector3d> polePositions;
+    for (const auto& cluster : clusters) {
+        Point3D centroid(0, 0, 0);
+        
+        // Sum all points in cluster
+        for (const auto& point : cluster.second) {
+            centroid.x() += point.x();
+            centroid.y() += point.y();
+            centroid.z() += point.z();
+        }
+        
+        // Average to get centroid
+        size_t numPoints = cluster.second.size();
+        centroid.x() /= numPoints;
+        centroid.y() /= numPoints;
+        centroid.z() /= numPoints;
+        
+        polePositions.emplace_back(centroid.x(), centroid.y(), centroid.z());
+    }
+
+    // Set the poles in the 3D view
+    m_pointView->setPoles(polePositions);
+
+    QMessageBox::information(this, tr("Poles Found"),
+                             tr("Found %1 pole clusters with classification ID %2.")
+                             .arg(polePositions.size()).arg(classId));
 }
 
 void MainWindow::startIpcServer(const QString& socketName)

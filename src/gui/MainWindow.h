@@ -6,6 +6,10 @@
 #include <QDir>
 #include <QMainWindow>
 #include <QSettings>
+#include <QInputDialog>
+
+#include "PointArray.h"
+
 
 #include <memory>
 
@@ -62,6 +66,7 @@ class MainWindow : public QMainWindow
         void closeEvent(QCloseEvent *event) override;
 
     private slots:
+        void loadPoles();
         void fullScreen();
         void openFiles();
         void openRecent();
@@ -110,6 +115,10 @@ class MainWindow : public QMainWindow
         QAction* m_quitGeneric = nullptr;
         QAction* m_fullScreen = nullptr;
         QAction* m_trackBall = nullptr;
+
+        //enviroment actions
+        QAction* m_loadPoles = nullptr;
+        QAction* m_loadMidspans = nullptr;
 
         // Dock Widgets
         QDockWidget* m_dockShaderEditor = nullptr;

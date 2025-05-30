@@ -96,6 +96,7 @@ add_definitions(${Qt5Core_DEFINITIONS})
 add_definitions(${Qt5Gui_DEFINITIONS})
 add_definitions(${Qt5Network_DEFINITIONS})
 add_definitions(${Qt5Widgets_DEFINITIONS})
+find_package(Eigen3 REQUIRED)
 
 if (NOT WIN32)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Qt5Core_EXECUTABLE_COMPILE_FLAGS} ${Qt5Gui_EXECUTABLE_COMPILE_FLAGS} ${Qt5Network_EXECUTABLE_COMPILE_FLAGS} ${Qt5OpenGL_EXECUTABLE_COMPILE_FLAGS} ${Qt5Widgets_EXECUTABLE_COMPILE_FLAGS}")
@@ -103,7 +104,7 @@ endif()
 
 
 include_directories(${IMATH_INCLUDE_DIRS})
-
+include_directories(${EIGEN3_INCLUDE_DIRS})
 
 #------------------------------------------------------------------------------
 # Install directory for binaries

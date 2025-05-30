@@ -6,6 +6,7 @@
 #include <cmath>
 #include <vector>
 #include <memory>
+#include <optional>
 
 #include "glutil.h"
 #define QT_NO_OPENGL_ES_2
@@ -14,6 +15,7 @@
 #include <QVector>
 #include <QGLWidget>
 #include <QModelIndex>
+#include <Eigen/Dense>
 
 #include "DrawCostModel.h"
 #include "InteractiveCamera.h"
@@ -78,6 +80,10 @@ class View3D : public QGLWidget
         void readSettings(const QSettings& settings);
         void writeSettings(QSettings& settings) const;
 
+        Geometry* currentGeometry() const;
+
+        void setPoles(const std::vector<Eigen::Vector3d>& poles);
+
     public slots:
         /// Set the backgroud color
         void setBackground(QColor col);
@@ -93,6 +99,7 @@ class View3D : public QGLWidget
         void paintGL() override;
 
         // Qt event callbacks
+        void mouseDoubleClickEvent(QMouseEvent* event);
         void mousePressEvent(QMouseEvent* event);
         void mouseMoveEvent(QMouseEvent* event);
         void wheelEvent(QWheelEvent* event);
@@ -141,6 +148,8 @@ class View3D : public QGLWidget
 
         bool snapToGeometry(const Imath::V3d& pos, double normalScaling,
                             Imath::V3d* newPos, QString* pointInfo);
+
+        std::optional<Imath::V3d> getClosestPoint(const Imath::V3d& pos, QString* outPointInfo);
 
         void snapToPoint(const Imath::V3d& pos);
         std::vector<const Geometry*> selectedGeometry() const;
@@ -207,4 +216,9 @@ class View3D : public QGLWidget
         GLuint m_quadLabelVertexArray = 0;
 
         double m_devicePixelRatio;
+
+        void renderPoles();
+        std::vector<Eigen::Vector3d> m_poles;
+        bool m_showPoles = false;
+        void drawCylinder(float radius, float height);
 };

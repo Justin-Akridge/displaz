@@ -107,6 +107,21 @@ View3D::View3D(GeometryCollection* geometries, const QGLFormat& format, MainWind
     connect(m_annotationAction, SIGNAL(toggled(bool)), this, SLOT(setAnnotations(bool)));
 }
 
+
+Geometry* View3D::currentGeometry() const
+{
+    if (m_geometries)
+    {
+        const auto& geoms = m_geometries->get();
+
+        if (!geoms.empty())
+
+            return geoms[0].get();  // get raw pointer from shared_ptr
+    }
+    return nullptr;
+}
+
+
 void View3D::restartRender()
 {
     m_incrementalDraw = false;
@@ -464,6 +479,10 @@ void View3D::paintGL()
 
     glCheckError();
 
+    if (!m_poles.empty()) {  // Add safety check
+        renderPoles();
+    }
+
     // Draw a grid for orientation purposes
     if (m_drawGrid)
     {
@@ -515,6 +534,7 @@ void View3D::paintGL()
         m_incrementalFrameTimer->start(10);
 
     m_incrementalDraw = true;
+
 }
 
 void View3D::drawMeshes(const TransformState& transState,
@@ -561,16 +581,51 @@ void View3D::drawAnnotations(const TransformState& transState,
         annotation->draw(m_annotationShader->shaderProgram(), transState);
 }
 
+void View3D::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton)
+    {
+        Imath::V3d guessedPos = guessClickPosition(event->pos());
+
+        snapToPoint(guessedPos);
+
+        restartRender();
+    }
+}
+
 void View3D::mousePressEvent(QMouseEvent* event)
 {
     m_mouseButton = event->button();
     m_prevMousePos = event->pos();
 
-    if (event->button() == Qt::MiddleButton ||
-        (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ShiftModifier)))
+
+    if (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ShiftModifier))
     {
-        snapToPoint(guessClickPosition(event->pos()));
+
+        Imath::V3d guessedPos = guessClickPosition(event->pos());
+        QString info;
+        auto snapped = getClosestPoint(guessedPos, &info);
+        if (snapped) {
+            addAnnotation("Note", "Comcast fiber", *snapped);
+            g_logger.info("Annotation point info:\n%s", info.toUtf8().data());
+        }
     }
+}
+
+std::optional<Imath::V3d> View3D::getClosestPoint(const Imath::V3d& pos, QString* outPointInfo)
+{
+    double snapScale = 0.025;
+    V3d snappedPos(0.0, 0.0, 0.0);
+    QString pointInfo;
+
+    bool success = snapToGeometry(pos, snapScale, &snappedPos, &pointInfo);
+    if (success) {
+        if (outPointInfo)
+            *outPointInfo = pointInfo;
+        return snappedPos;
+    }
+
+    return std::nullopt;
 }
 
 void View3D::snapToPoint(const Imath::V3d & pos)
@@ -607,18 +662,36 @@ void View3D::snapToPoint(const Imath::V3d & pos)
 
 void View3D::mouseMoveEvent(QMouseEvent* event)
 {
-    if (m_mouseButton == Qt::MiddleButton)
-        return;
-    bool zooming = m_mouseButton == Qt::RightButton;
-    if (event->modifiers() & Qt::ControlModifier)
+    if (m_mouseButton == Qt::RightButton) 
     {
-        m_cursorPos = m_camera.mouseMovePoint(m_cursorPos,
-                                              event->pos() - m_prevMousePos,
-                                              zooming);
+        QPoint delta = event->pos() - m_prevMousePos;
+
+        // Get camera view matrix
+        Imath::M44d viewMatrix = m_camera.viewMatrix(); // from camera
+        Imath::M44d invView = viewMatrix.transposed();  // for pure rotation (no scale/skew)
+
+        // Extract screen-aligned camera axes from the inverse view matrix
+        Imath::V3d screenRight(invView[0][0], invView[0][1], invView[0][2]); // X axis (camera right)
+        Imath::V3d screenUp   (invView[1][0], invView[1][1], invView[1][2]); // Y axis (camera up)
+
+        // Compute pan speed based on view size and distance
+        double distance = m_camera.eyeToCenterDistance();
+        double panSpeedX = 2.0 * distance / width();
+        double panSpeedY = 2.0 * distance / height();
+
+        // Apply panning in screen space
+        Imath::V3d offset = (-delta.x() * panSpeedX) * screenRight +
+                            ( delta.y() * panSpeedY) * screenUp;
+
+        m_camera.setCenter(m_camera.center() + offset);
+        m_cursorPos = m_camera.center();
+
         restartRender();
     }
-    else
-        m_camera.mouseDrag(m_prevMousePos, event->pos(), zooming);
+
+
+    if (m_mouseButton == Qt::MiddleButton)
+        m_camera.mouseDrag(m_prevMousePos, event->pos(), false);
 
     m_prevMousePos = event->pos();
 }
@@ -1271,3 +1344,70 @@ void View3D::writeSettings(QSettings& settings) const
 }
 
 // vi: set et:
+void View3D::drawCylinder(float radius, float height) {
+    const int numSlices = 50;  // Number of slices for the cylinder
+    const float angleStep = 2 * M_PI / numSlices;
+
+    // Draw the side of the cylinder
+    glBegin(GL_TRIANGLE_STRIP);
+    for (int i = 0; i <= numSlices; ++i) {
+        float angle = i * angleStep;
+        float x = radius * cos(angle);
+        float y = radius * sin(angle);
+
+        glVertex3f(x, y, 0);     // Bottom circle
+        glVertex3f(x, y, height); // Top circle
+    }
+    glEnd();
+
+    // Draw the bottom cap
+    glBegin(GL_TRIANGLE_FAN);
+    glVertex3f(0, 0, 0); // Center of the bottom
+    for (int i = 0; i <= numSlices; ++i) {
+        float angle = i * angleStep;
+        float x = radius * cos(angle);
+        float y = radius * sin(angle);
+        glVertex3f(x, y, 0);  // Bottom circle
+    }
+    glEnd();
+
+    // Draw the top cap
+    glBegin(GL_TRIANGLE_FAN);
+    glVertex3f(0, 0, height); // Center of the top
+    for (int i = 0; i <= numSlices; ++i) {
+        float angle = i * angleStep;
+        float x = radius * cos(angle);
+        float y = radius * sin(angle);
+        glVertex3f(x, y, height);  // Top circle
+    }
+    glEnd();
+}
+
+void View3D::setPoles(const std::vector<Eigen::Vector3d>& poles) {
+    m_poles = poles;
+    update();
+}
+
+void View3D::renderPoles() {
+    glPushMatrix();
+    
+    // Set material properties for poles (optional)
+    GLfloat poleColor[] = {1.0f, 0.0f, 0.0f, 1.0f}; // Red color
+    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, poleColor);
+    
+    for (const auto& pole : m_poles) {
+        std::cout << "rending pole\n" << std::endl;
+        std::cout << pole.x() << " " << pole.y() << " " << pole.z() << std::endl;
+        glPushMatrix();
+        
+        // Translate to pole position
+        glTranslated(pole.x(), pole.y(), pole.z());
+        
+        // Draw cylinder at this position
+        drawCylinder(0.1f, 2.0f); // radius=0.1, height=2.0
+        
+        glPopMatrix();
+    }
+    
+    glPopMatrix();
+}

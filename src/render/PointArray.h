@@ -53,6 +53,7 @@ class PointArray : public Geometry
                                 double* distance = 0,
                                 std::string* info = 0) const;
 
+        std::vector<std::pair<V3d, std::string>> getPointsByClassification(uint8_t targetClass) const;
         /// Draw a representation of the point hierarchy.
         ///
         /// Probably only useful for debugging.
