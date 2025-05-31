@@ -146,6 +146,7 @@ void View3D::initializeGLGeometry(int begin, int end)
             geoms[i]->setShaderId("meshface", m_meshFaceShader->shaderProgram().programId());
             geoms[i]->setShaderId("meshedge", m_meshEdgeShader->shaderProgram().programId());
             geoms[i]->setShaderId("annotation", m_annotationShader->shaderProgram().programId());
+            geoms[i]->setShaderId("sphere", m_sphereShader->shaderProgram().programId());
             geoms[i]->initializeGL();
         }
     }
@@ -212,6 +213,14 @@ void View3D::addAnnotation(const QString& label, const QString& text,
     GLuint programId = m_annotationShader->shaderProgram().programId();
     auto annotation = std::make_shared<Annotation>(label, programId, text, pos);
     m_annotations.append(annotation);
+    restartRender();
+}
+
+void View3D::addSphere(const Imath::V3d& pos)
+{
+    GLuint programId = m_sphereShader->shaderProgram().programId();
+    auto sphere = std::make_shared<Sphere>(programId, pos);
+    m_spheres.append(sphere);
     restartRender();
 }
 
@@ -346,6 +355,9 @@ void View3D::initializeGL()
     m_annotationShader.reset(new ShaderProgram());
     m_annotationShader->setShaderFromSourceFile("shaders:annotation.glsl");
 
+    m_sphereShader.reset(new ShaderProgram());
+    m_sphereShader->setShaderFromSourceFile("shaders:sphere.glsl");
+
     double dPR = getDevicePixelRatio();
     int w = width() * dPR;
     int h = height() * dPR;
@@ -479,11 +491,6 @@ void View3D::paintGL()
 
     glCheckError();
 
-    if (!m_poles.empty()) {  // Add safety check
-        renderPoles();
-    }
-
-    // Draw a grid for orientation purposes
     if (m_drawGrid)
     {
         drawGrid();
@@ -521,11 +528,21 @@ void View3D::paintGL()
         drawAxes();
     }
 
+    if (!m_poles.empty()) {
+      renderPoles();
+    }
+
+    if (!m_spheres.empty() && m_sphereShader->isValid())
+    {
+        drawSpheres(transState, w, h);
+    }
+
     // Draw annotations
     if (m_drawAnnotations && m_annotationShader->isValid())
     {
         drawAnnotations(transState, w, h);
     }
+
 
     // Set up timer to draw a high quality frame if necessary
     if (!drawCount.moreToDraw)
@@ -581,6 +598,19 @@ void View3D::drawAnnotations(const TransformState& transState,
         annotation->draw(m_annotationShader->shaderProgram(), transState);
 }
 
+void View3D::drawSpheres(const TransformState& transState,
+                             int viewportPixelWidth,
+                             int viewportPixelHeight) const
+{
+    QOpenGLShaderProgram& sphereShader = m_sphereShader->shaderProgram();
+    sphereShader.bind();
+    sphereShader.setUniformValue("viewportSize",
+                                     viewportPixelWidth,
+                                     viewportPixelHeight);
+    for (auto sphere : m_spheres)
+        sphere->draw(m_sphereShader->shaderProgram(), transState);
+}
+
 void View3D::mouseDoubleClickEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton)
@@ -599,6 +629,24 @@ void View3D::mousePressEvent(QMouseEvent* event)
     m_prevMousePos = event->pos();
 
 
+    //if (event->button() == Qt::LeftButton) {
+    //    Imath::V3d guessedPos = guessClickPosition(event->pos());
+
+    //    // Your existing debug output...
+    //    std::cout << "Click position - Screen: (" << event->pos().x() << ", " << event->pos().y()
+    //              << ") -> World: (" << guessedPos.x << ", " << guessedPos.y << ", " << guessedPos.z << ")" << std::endl;
+
+    //    if (currentGeometry()) {
+    //        V3d offset = currentGeometry()->offset();
+    //        std::cout << "Point cloud offset: (" << offset.x << ", " << offset.y << ", " << offset.z << ")" << std::endl;
+    //        std::cout << "Local coordinates: (" << (guessedPos.x - offset.x) << ", "
+    //                  << (guessedPos.y - offset.y) << ", " << (guessedPos.z - offset.z) << ")" << std::endl;
+    //    }
+
+    //    m_spheres.push_back(Eigen::Vector3d(guessedPos.x, guessedPos.y, guessedPos.z));
+    //    restartRender();
+    //}
+
     if (event->button() == Qt::LeftButton && (event->modifiers() & Qt::ShiftModifier))
     {
 
@@ -607,6 +655,7 @@ void View3D::mousePressEvent(QMouseEvent* event)
         auto snapped = getClosestPoint(guessedPos, &info);
         if (snapped) {
             addAnnotation("Note", "Comcast fiber", *snapped);
+            addSphere(*snapped);
             g_logger.info("Annotation point info:\n%s", info.toUtf8().data());
         }
     }
@@ -1343,71 +1392,14 @@ void View3D::writeSettings(QSettings& settings) const
     settings.setValue("background", QVariant(m_backgroundColor));
 }
 
-// vi: set et:
-void View3D::drawCylinder(float radius, float height) {
-    const int numSlices = 50;  // Number of slices for the cylinder
-    const float angleStep = 2 * M_PI / numSlices;
-
-    // Draw the side of the cylinder
-    glBegin(GL_TRIANGLE_STRIP);
-    for (int i = 0; i <= numSlices; ++i) {
-        float angle = i * angleStep;
-        float x = radius * cos(angle);
-        float y = radius * sin(angle);
-
-        glVertex3f(x, y, 0);     // Bottom circle
-        glVertex3f(x, y, height); // Top circle
-    }
-    glEnd();
-
-    // Draw the bottom cap
-    glBegin(GL_TRIANGLE_FAN);
-    glVertex3f(0, 0, 0); // Center of the bottom
-    for (int i = 0; i <= numSlices; ++i) {
-        float angle = i * angleStep;
-        float x = radius * cos(angle);
-        float y = radius * sin(angle);
-        glVertex3f(x, y, 0);  // Bottom circle
-    }
-    glEnd();
-
-    // Draw the top cap
-    glBegin(GL_TRIANGLE_FAN);
-    glVertex3f(0, 0, height); // Center of the top
-    for (int i = 0; i <= numSlices; ++i) {
-        float angle = i * angleStep;
-        float x = radius * cos(angle);
-        float y = radius * sin(angle);
-        glVertex3f(x, y, height);  // Top circle
-    }
-    glEnd();
-}
-
 void View3D::setPoles(const std::vector<Eigen::Vector3d>& poles) {
     m_poles = poles;
     update();
 }
 
 void View3D::renderPoles() {
-    glPushMatrix();
-    
-    // Set material properties for poles (optional)
-    GLfloat poleColor[] = {1.0f, 0.0f, 0.0f, 1.0f}; // Red color
-    glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, poleColor);
-    
-    for (const auto& pole : m_poles) {
-        std::cout << "rending pole\n" << std::endl;
-        std::cout << pole.x() << " " << pole.y() << " " << pole.z() << std::endl;
-        glPushMatrix();
-        
-        // Translate to pole position
-        glTranslated(pole.x(), pole.y(), pole.z());
-        
-        // Draw cylinder at this position
-        drawCylinder(0.1f, 2.0f); // radius=0.1, height=2.0
-        
-        glPopMatrix();
+    for (const Eigen::Vector3d& pole : m_poles) {
+        Imath::V3d pos(pole.x(), pole.y(), pole.z()); // Convert to Imath::V3d if needed
+        addSphere(pos);
     }
-    
-    glPopMatrix();
 }

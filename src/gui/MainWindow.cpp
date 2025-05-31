@@ -26,6 +26,7 @@
 #include <QApplication>
 #include <QColorDialog>
 #include <QDockWidget>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QMenuBar>
@@ -40,7 +41,13 @@
 #include <QLocalServer>
 #include <QMimeData>
 #include <QGLFormat>
-#include <Eigen/Dense>
+#include <QPushButton>
+#include <QLabel>
+#include <QDesktopServices>
+#include <QWebEngineView> 
+#include <QWebEngineSettings>
+#include <QVBoxLayout>
+
 
 using Point3D = Eigen::Vector3d;
 std::vector<std::vector<size_t>> dbscanCluster(const std::vector<Point3D>& points, double eps, size_t minPts);
@@ -256,6 +263,86 @@ MainWindow::MainWindow(const QGLFormat& format)
 
     // File menu
     //connect(m_, SIGNAL(aboutToShow()), this, SLOT(updateRecentFiles()));
+    //
+    //
+    QWidget* mapWindow = new QWidget();
+    mapWindow->setWindowTitle("Map");
+    mapWindow->resize(800, 600);
+
+    QWebEngineView* webView = new QWebEngineView(mapWindow);
+    webView->load(QUrl("http://localhost:8000/map.html"));
+
+    // Create layout and add webView
+    QVBoxLayout* layout = new QVBoxLayout(mapWindow);
+    layout->setContentsMargins(0, 0, 0, 0);  // Optional: no margins
+    layout->addWidget(webView);
+
+    mapWindow->setLayout(layout);
+    mapWindow->show();
+
+    m_poleListWidget = new QListWidget(this);
+    m_poleListWidget->setMinimumWidth(200);
+    m_poleListWidget->setSelectionMode(QAbstractItemView::SingleSelection);
+
+    // Create a dock widget to hold the pole list
+    QDockWidget *dockWidget = new QDockWidget("Pole List", this);
+    dockWidget->setWidget(m_poleListWidget);
+    dockWidget->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+
+    addDockWidget(Qt::LeftDockWidgetArea, dockWidget);
+
+    QWidget *central = new QWidget(this); // Or your actual central widget
+    setCentralWidget(central);
+
+    connect(m_poleListWidget, &QListWidget::itemClicked, this, [=](QListWidgetItem* item){
+      int index = m_poleListWidget->row(item);
+      if (index >= 0 && static_cast<size_t>(index) < m_pointView->poleCount()) {
+        Eigen::Vector3d pos = m_pointView->getPoleAt(index);
+        Imath::V3d imathPos(pos.x(), pos.y(), pos.z());
+        m_pointView->centerOnPoint(imathPos);
+      }
+    });
+
+    QPushButton* deleteButton = new QPushButton("Delete Selected Pole");
+    connect(deleteButton, &QPushButton::clicked, this, [=]() {
+        QListWidgetItem* item = m_poleListWidget->currentItem();
+        if (!item) return;
+
+        int index = m_poleListWidget->row(item);
+        if (index >= 0 && index < static_cast<int>(m_pointView->poleCount())) {
+            // Remove from vector
+            polePositions.erase(polePositions.begin() + index);
+
+            // Rebuild the list
+            m_poleListWidget->clear();
+            for (size_t i = 0; i < polePositions.size(); ++i) {
+                const auto& p = polePositions[i];
+                QString label = QString("Pole %1: (%2, %3, %4)")
+                                .arg(i + 1)
+                                .arg(p.x(), 0, 'f', 2)
+                                .arg(p.y(), 0, 'f', 2)
+                                .arg(p.z(), 0, 'f', 2);
+                m_poleListWidget->addItem(label);
+            }
+        }
+    });
+
+    QDockWidget* editorDock = new QDockWidget("Pole Details", this);
+    editorDock->setWidget(createPoleEditorWidget());
+    editorDock->setAllowedAreas(Qt::RightDockWidgetArea);
+    addDockWidget(Qt::RightDockWidgetArea, editorDock);
+
+    connect(m_poleListWidget, &QListWidget::itemClicked, this, [=](QListWidgetItem* item) {
+      int index = m_poleListWidget->row(item);
+      if (index >= 0 && static_cast<size_t>(index) < m_pointView->poleCount()) {
+          //tagEdit->setText(poleDataList[index].tag);
+          //ownerEdit->setText(poleDataList[index].owner);
+          //specCombo->setCurrentText(poleDataList[index].spec);
+          // update imageList with thumbnails if available
+      }
+    });
+
+
 
     m_loadPoles = new QAction(tr("&Load Poles"), this);
     connect(m_loadPoles, &QAction::triggered, this, &MainWindow::loadPoles);
@@ -403,6 +490,103 @@ MainWindow::MainWindow(const QGLFormat& format)
     readSettings();
 }
 
+QWidget* MainWindow::createPoleEditorWidget()
+{
+    QWidget* editor = new QWidget;
+    QVBoxLayout* layout = new QVBoxLayout(editor);
+
+    QLabel* tagLabel = new QLabel("Pole Tag:");
+    QLineEdit* tagEdit = new QLineEdit;
+
+    QLabel* ownerLabel = new QLabel("Pole Owner:");
+    QLineEdit* ownerEdit = new QLineEdit;
+
+    QLabel* specLabel = new QLabel("Pole Spec:");
+    QComboBox* specCombo = new QComboBox;
+    specCombo->addItems({"Wood", "Steel", "Concrete", "Composite"});
+
+    QLabel* imagesLabel = new QLabel("Images:");
+    QListWidget* imageList = new QListWidget;
+
+    QPushButton* uploadButton = new QPushButton("Upload Images");
+    connect(uploadButton, &QPushButton::clicked, this, [=]() {
+        QStringList fileNames = QFileDialog::getOpenFileNames(nullptr, "Select Images", QString(), "Images (*.png *.jpg *.jpeg)");
+        for (const QString& file : fileNames) {
+            QListWidgetItem* item = new QListWidgetItem(QIcon(file), QFileInfo(file).fileName());
+            item->setData(Qt::UserRole, file); // Save the path
+            imageList->addItem(item);
+        }
+    });
+
+    connect(imageList, &QListWidget::itemDoubleClicked, this, [=](QListWidgetItem* item) {
+      QString filePath = item->data(Qt::UserRole).toString();
+      QDesktopServices::openUrl(QUrl::fromLocalFile(filePath));
+    });
+
+    layout->addWidget(tagLabel);
+    layout->addWidget(tagEdit);
+    layout->addWidget(ownerLabel);
+    layout->addWidget(ownerEdit);
+    layout->addWidget(specLabel);
+    layout->addWidget(specCombo);
+    layout->addWidget(imagesLabel);
+    layout->addWidget(imageList);
+    layout->addWidget(uploadButton);
+    layout->addStretch();
+
+    return editor;
+}
+
+QWidget* MainWindow::createPoleListItem(const QString& labelText, int index, std::function<void(int)> onDelete)
+{
+    QWidget* itemWidget = new QWidget;
+    QHBoxLayout* layout = new QHBoxLayout(itemWidget);
+    layout->setContentsMargins(0, 0, 0, 0);
+
+    QLabel* label = new QLabel(labelText);
+    QPushButton* deleteButton = new QPushButton;
+    deleteButton->setIcon(QIcon::fromTheme("edit-delete")); // Use a trash icon theme
+    deleteButton->setToolTip("Delete this pole");
+
+    QObject::connect(deleteButton, &QPushButton::clicked, itemWidget, [index, onDelete]() {
+        if (QMessageBox::question(nullptr, "Delete Pole", "Are you sure you want to delete this pole?") == QMessageBox::Yes) {
+            onDelete(index);
+        }
+    });
+
+    layout->addWidget(label);
+    layout->addStretch();
+    layout->addWidget(deleteButton);
+
+    return itemWidget;
+}
+
+
+void MainWindow::refreshPoleList()
+{
+    m_poleListWidget->clear();
+    for (size_t i = 0; i < polePositions.size(); ++i) {
+        const auto& p = polePositions[i];
+        QString label = QString("Pole %1: (%2, %3, %4)")
+                        .arg(i + 1)
+                        .arg(p.x(), 0, 'f', 2)
+                        .arg(p.y(), 0, 'f', 2)
+                        .arg(p.z(), 0, 'f', 2);
+
+        QListWidgetItem* item = new QListWidgetItem();
+        QWidget* widget = createPoleListItem(label, static_cast<int>(i), [=](int idx) {
+            polePositions.erase(polePositions.begin() + idx);
+            refreshPoleList();
+        });
+
+        m_poleListWidget->addItem(item);
+        item->setSizeHint(widget->sizeHint());
+        m_poleListWidget->setItemWidget(item, widget);
+    }
+}
+
+
+
 void MainWindow::loadPoles() {
     bool ok;
     int classId = QInputDialog::getInt(this,
@@ -462,29 +646,65 @@ void MainWindow::loadPoles() {
         }
     }
 
-    // Calculate centroid for each cluster
-    std::vector<Eigen::Vector3d> polePositions;
     for (const auto& cluster : clusters) {
         Point3D centroid(0, 0, 0);
-        
-        // Sum all points in cluster
+
         for (const auto& point : cluster.second) {
             centroid.x() += point.x();
             centroid.y() += point.y();
             centroid.z() += point.z();
         }
-        
-        // Average to get centroid
+
         size_t numPoints = cluster.second.size();
         centroid.x() /= numPoints;
         centroid.y() /= numPoints;
         centroid.z() /= numPoints;
-        
-        polePositions.emplace_back(centroid.x(), centroid.y(), centroid.z());
+
+        // ✅ Apply offset
+        polePositions.emplace_back(centroid.x(),
+                                   centroid.y(),
+                                   centroid.z());
     }
 
-    // Set the poles in the 3D view
+      // Set the poles in the 3D view
     m_pointView->setPoles(polePositions);
+
+    m_poleListWidget->clear();
+    for (size_t i = 0; i < m_pointView->poleCount(); ++i) {
+        Eigen::Vector3d p = m_pointView->getPoleAt(i);
+        QString label = QString("Pole %1: (%2, %3, %4)")
+                        .arg(i + 1)
+                        .arg(p.x(), 0, 'f', 2)
+                        .arg(p.y(), 0, 'f', 2)
+                        .arg(p.z(), 0, 'f', 2);
+
+        QListWidgetItem* item = new QListWidgetItem();
+        m_poleListWidget->addItem(item);
+
+        QWidget* itemWidget = createPoleListItem(label, i, [=](int idx){
+            // Remove from your backend storage
+            m_pointView->removePoleAt(idx); // You must implement this
+            // Refresh the UI
+            this->refreshPoleList();
+        });
+
+        item->setSizeHint(itemWidget->sizeHint());
+        m_poleListWidget->setItemWidget(item, itemWidget);
+    }
+
+    //m_poleListWidget->clear();
+
+    //for (size_t i = 0; i < polePositions.size(); ++i) {
+    //    const auto& p = polePositions[i];
+    //    QString label = QString("Pole %1: (%2, %3, %4)")
+    //                .arg(i + 1)
+    //                .arg(p.x(), 0, 'f', 2)  // format to 2 decimal places
+    //                .arg(p.y(), 0, 'f', 2)
+    //                .arg(p.z(), 0, 'f', 2);
+
+    //    m_poleListWidget->addItem(label);
+    //}
+
 
     QMessageBox::information(this, tr("Poles Found"),
                              tr("Found %1 pole clusters with classification ID %2.")

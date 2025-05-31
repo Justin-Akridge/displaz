@@ -7,7 +7,9 @@
 #include <QMainWindow>
 #include <QSettings>
 #include <QInputDialog>
-
+#include <QListWidget>
+#include <Eigen/Dense>
+#include <QWebEngineView>
 #include "PointArray.h"
 
 
@@ -89,6 +91,7 @@ class MainWindow : public QMainWindow
         void handleIpcConnection();
 
     private:
+        std::vector<Eigen::Vector3d> polePositions;
         void readSettings();
         void writeSettings();
 
@@ -120,7 +123,12 @@ class MainWindow : public QMainWindow
         QAction* m_loadPoles = nullptr;
         QAction* m_loadMidspans = nullptr;
 
+        void refreshPoleList();
+        QWidget* createPoleListItem(const QString& labelText, int index, std::function<void(int)> onDelete);
+        QWidget* createPoleEditorWidget();
         // Dock Widgets
+        QWebEngineView* m_webView;
+        QListWidget* m_poleListWidget;  // Scrollable list of poles
         QDockWidget* m_dockShaderEditor = nullptr;
         QDockWidget* m_dockShaderParameters = nullptr;
         QDockWidget* m_dockDataSet = nullptr;

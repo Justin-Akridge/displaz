@@ -185,6 +185,7 @@ bool PointArray::loadFile(QString fileName, size_t maxPointCount)
     }
     if (m_npoints > 0)
         centroid = (1.0/m_npoints) * Psum;
+
     centroid += offset;
     bbox.min += offset;
     bbox.max += offset;
@@ -233,12 +234,6 @@ bool PointArray::loadFile(QString fileName, size_t maxPointCount)
     emit loadProgress(int(100));
     emit loadStepComplete();
 
-    auto points = getPointsByClassification(23);
-    std::cout << "point size: " << points.size() << std::endl;
-    for (const auto& [pos, info] : points)
-    {
-        std::cout << "Point at " << pos << "\n" << info << std::endl;
-    }
     return true;
 }
 

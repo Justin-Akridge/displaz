@@ -21,6 +21,7 @@
 #include "InteractiveCamera.h"
 #include "geometrycollection.h"
 #include "Annotation.h"
+#include "Sphere.h"
 #include "Enable.h"
 #include "ShaderProgram.h"
 
@@ -66,6 +67,8 @@ class View3D : public QGLWidget
         void addAnnotation(const QString& label, const QString& text,
                            const Imath::V3d& pos);
 
+        void addSphere(const Imath::V3d& pos);
+
         /// Remove all annotations who's label matches the given QRegExp
         void removeAnnotations(const QRegExp& labelRegex);
 
@@ -83,6 +86,22 @@ class View3D : public QGLWidget
         Geometry* currentGeometry() const;
 
         void setPoles(const std::vector<Eigen::Vector3d>& poles);
+
+        size_t poleCount() const
+        {
+            return m_poles.size();
+        }
+        Eigen::Vector3d getPoleAt(size_t idx) const
+        {
+            if (idx < m_poles.size())
+                return m_poles[idx];
+            return Eigen::Vector3d(0,0,0); // or throw
+        }
+        void removePoleAt(int idx) {
+          if (idx >= 0 && idx < m_poles.size())
+              m_poles.erase(m_poles.begin() + idx);
+        }
+
 
     public slots:
         /// Set the backgroud color
@@ -120,6 +139,8 @@ class View3D : public QGLWidget
         void setAnnotations(bool);
 
     private:
+        std::vector<Eigen::Vector3d> m_poles;
+        void renderPoles();
         double getDevicePixelRatio();
         void initializeGLGeometry(int begin, int end);
 
@@ -141,6 +162,10 @@ class View3D : public QGLWidget
         void drawMeshes(const TransformState& transState,
                         const std::vector<const Geometry*>& geoms) const;
         void drawAnnotations(const TransformState& transState,
+                             int viewportPixelWidth,
+                             int viewportPixelHeight) const;
+
+        void drawSpheres(const TransformState& transState,
                              int viewportPixelWidth,
                              int viewportPixelHeight) const;
 
@@ -185,7 +210,10 @@ class View3D : public QGLWidget
         /// Collection of geometries
         GeometryCollection* m_geometries;
         QItemSelectionModel* m_selectionModel = nullptr;
+
         QVector<std::shared_ptr<Annotation>> m_annotations;
+        QVector<std::shared_ptr<Sphere>> m_spheres;
+
         /// UI widget for shader
         QWidget* m_shaderParamsUI;
         /// Timer for next incremental frame
@@ -208,6 +236,7 @@ class View3D : public QGLWidget
         std::unique_ptr<ShaderProgram> m_axesLabelShader;
         std::unique_ptr<ShaderProgram> m_boundingBoxShader;
         std::unique_ptr<ShaderProgram> m_annotationShader;
+        std::unique_ptr<ShaderProgram> m_sphereShader;
 
         GLuint m_cursorVertexArray = 0;
         GLuint m_axesVertexArray = 0;
@@ -215,10 +244,6 @@ class View3D : public QGLWidget
         GLuint m_quadVertexArray = 0;
         GLuint m_quadLabelVertexArray = 0;
 
-        double m_devicePixelRatio;
 
-        void renderPoles();
-        std::vector<Eigen::Vector3d> m_poles;
-        bool m_showPoles = false;
-        void drawCylinder(float radius, float height);
+        double m_devicePixelRatio;
 };

@@ -17,6 +17,7 @@ include_directories(
     ${Qt5Network_INCLUDE_DIRS}
     ${Qt5OpenGL_INCLUDE_DIRS}
     ${Qt5Widgets_INCLUDE_DIRS}
+    ${Qt5WebEngineWidgets_INCLUDE_DIRS}
 )
 
 #------------------------------------------------------------------------------
@@ -105,6 +106,7 @@ set(gui_srcs
     render/View3D.cpp
     render/GeometryMutator.cpp
     render/Annotation.cpp
+    render/Sphere.cpp
 
     shader/Enable.cpp
     shader/Shader.cpp
@@ -156,6 +158,7 @@ endif()
 target_link_libraries(displaz
     Qt5::Core Qt5::Gui Qt5::OpenGL
     Qt5::Network Qt5::Widgets
+    Qt5::WebEngineWidgets
     OpenGL::GL ${GLEW_LIBRARIES}
     ${ILMBASE_LIBRARIES}
 )
